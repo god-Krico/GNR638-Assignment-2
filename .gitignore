@@ -1,0 +1,13 @@
+# Datasets
+AID/
+dataset_splits/
+*.zip
+
+# Model Checkpoints & Logs
+checkpoints/
+runs/
+*.pth
+
+# Python Cache
+__pycache__/
+*.pyc
