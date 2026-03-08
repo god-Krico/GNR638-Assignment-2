@@ -1,22 +1,22 @@
-# [cite_start]GNR638 Assignment 2: Pre-trained CNN Representation Transfer and Robustness Analysis [cite: 1, 2]
+# GNR638 Assignment 2: Pre-trained CNN Representation Transfer and Robustness Analysis
 
 
 ## Overview
-[cite_start]This repository contains the reproducible codebase for evaluating the behavior of pre-trained convolutional neural network (CNN) backbones on a supervised image classification task[cite: 6]. [cite_start]The models are evaluated on the Aerial Images Dataset (AID) [cite: 33] [cite_start]across five controlled experimental scenarios[cite: 37]:
-1. [cite_start]Linear Probe Transfer [cite: 41]
-2. [cite_start]Fine-Tuning Strategies [cite: 53]
-3. [cite_start]Few-Shot Learning Analysis [cite: 68]
-4. [cite_start]Corruption Robustness Evaluation [cite: 81]
-5. [cite_start]Layer-Wise Feature Probing [cite: 97]
+This repository contains the reproducible codebase for evaluating the behavior of pre-trained convolutional neural network (CNN) backbones on a supervised image classification task. The models are evaluated on the Aerial Images Dataset (AID) across five controlled experimental scenarios:
+1. Linear Probe Transfer 
+2. Fine-Tuning Strategies
+3. Few-Shot Learning Analysis
+4. Corruption Robustness Evaluation
+5. Layer-Wise Feature Probing
 
 **Selected Architectures:**
-* [cite_start]ResNet50 [cite: 25]
-* [cite_start]DenseNet121 [cite: 28]
-* [cite_start]EfficientNet-B0 [cite: 29]
+* ResNet50
+* DenseNet121 
+* EfficientNet-B0 
 
 ---
 
-## [cite_start]1. Environment Setup [cite: 126, 127, 128]
+## 1. Environment Setup 
 This framework is built using Python 3.12 and PyTorch. 
 
 **Install required dependencies:**
@@ -122,32 +122,18 @@ checkpoints/
 
 directory.
 
-Training Logs
-
-TensorBoard logs
-
-Loss / accuracy curves (.png)
-
-Efficiency metrics
-
-MACs / FLOPs
-
-Parameter counts
-
-Visualizations
-
-Confusion matrices
-
-t-SNE embeddings
-
-PCA layer-wise feature scatter plots
-
-Robustness Evaluation
-
-CSV files tracking accuracy degradation
-
-Text summaries containing:
-
-Relative Robustness
-
-Corruption Error formulas
+- Training Logs
+- TensorBoard logs
+- Loss / accuracy curves (.png)
+- Efficiency metrics
+- MACs / FLOPs
+- Parameter counts
+- Visualizations
+- Confusion matrices
+- t-SNE embeddings
+- PCA layer-wise feature scatter plots
+- Robustness Evaluation
+- CSV files tracking accuracy degradation
+- Text summaries containing:
+- Relative Robustness
+- Corruption Error formulas
