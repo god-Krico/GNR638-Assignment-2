@@ -13,6 +13,7 @@ Requires:
 
 import torch
 import os
+import time
 import argparse
 from pathlib import Path
 import numpy as np
@@ -23,8 +24,9 @@ from sklearn.metrics import confusion_matrix, accuracy_score
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import itertools
+from datetime import datetime
 
-from models import create_model
+from models import create_model, count_parameters, calculate_macs_flops
 from datasets import get_dataloader
 
 def load_checkpoint(model, ckpt_path, device):
@@ -159,8 +161,16 @@ def plot_embeddings(embeddings, labels, class_names, outpath, method="tsne", tit
     plt.savefig(outpath, dpi=300)
     plt.close()
 
+def _format_seconds(sec: float) -> str:
+    sec = int(sec)
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 def main(args):
+    total_start_time = time.time()
+    
     device = torch.device("cuda" if torch.cuda.is_available() and not args.force_cpu else "cpu")
     print("Using device:", device)
 
@@ -196,12 +206,21 @@ def main(args):
     ).to(device)
 
     model = load_checkpoint(model, ckpt_path, device)
+    
+    print("\n--- Evaluation Efficiency Metrics ---")
+    total_params, trainable_params = count_parameters(model, verbose=True)
+    macs, flops = calculate_macs_flops(model, input_size=(3, args.img_size, args.img_size))
+    print("-------------------------------------\n")
 
     # Evaluate and extract
+    inference_start = time.time()
     acc, cm, labels_all, embeddings = get_embeddings_and_preds(model, test_loader, device)
+    inference_time = time.time() - inference_start
     print(f"Validation Accuracy: {acc:.4f}")
+    print(f"Inference & Feature Extraction Time: {_format_seconds(inference_time)}")
 
     # Save confusion matrices
+    plot_start = time.time()
     print("Generating Confusion Matrices...")
     plot_confusion(cm, class_names,
                    out_dir / f"confmat_{args.run_name}.png",
@@ -219,13 +238,27 @@ def main(args):
                         out_dir / f"{args.embed_method}_{args.run_name}.png", 
                         method=args.embed_method, 
                         title=f"{args.embed_method.upper()} Feature Embeddings: {args.run_name}")
+                        
+    plot_time = time.time() - plot_start
+    total_time = time.time() - total_start_time
 
     # Save summary
     with open(out_dir / "summary_eval.txt", "w") as f:
-        f.write(f"Run: {args.run_name}\n")
+        f.write(f"Evaluation Summary for {args.run_name}\n")
+        f.write("======================================\n")
+        f.write(f"Date: {datetime.fromtimestamp(time.time()).isoformat()}\n")
         f.write(f"Validation Accuracy: {acc:.4f}\n")
+        f.write("\nEfficiency Metrics\n")
+        f.write(f"Total parameters: {total_params}\n")
+        if macs is not None and flops is not None:
+            f.write(f"MACs: {macs / 1e9:.3f} G\n")
+            f.write(f"FLOPs: {flops / 1e9:.3f} G\n")
+        f.write("\nTiming Profile\n")
+        f.write(f"Total Evaluation Script Time: {_format_seconds(total_time)}\n")
+        f.write(f"  -> Model Inference Time:    {_format_seconds(inference_time)}\n")
+        f.write(f"  -> Visualization/Plot Time: {_format_seconds(plot_time)}\n")
 
-    print("\nEvaluation complete.")
+    print(f"\nEvaluation complete in {_format_seconds(total_time)}.")
     print("Results saved in:", out_dir)
 
 
@@ -239,6 +272,9 @@ if __name__ == "__main__":
     parser.add_argument("--force_cpu", action="store_true")
     parser.add_argument("--plot_embeddings", action="store_true", help="Generate PCA/t-SNE plots")
     parser.add_argument("--embed_method", type=str, default="tsne", choices=["tsne", "pca"], help="Method for embedding visualization")
+    
+    # ADD THIS LINE RIGHT HERE:
+    parser.add_argument("--save_dir", type=str, default="checkpoints", help="Directory where models are saved")
     
     args = parser.parse_args()
     main(args)

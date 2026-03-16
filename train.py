@@ -1,8 +1,6 @@
 """
-Train script for GNR638 Assignment 2 with loss & accuracy plotting.
-
-Usage example:
-    python train.py --data dataset_splits --model resnet50 --pretrained --train_split train_100 --strategy linear_probe --epochs 30 --batch_size 32
+Train script for GNR638 Assignment 2 with loss & accuracy plotting, 
+gradient norm tracking, and phase-specific timing.
 """
 
 import os
@@ -10,6 +8,7 @@ import time
 import argparse
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 
 import torch
 import torch.nn as nn
@@ -175,15 +174,27 @@ def train_loop(args):
     val_losses = []
     train_accs = []
     val_accs = []
+    
+    # Dictionary to track gradient norms per epoch
+    grad_norms_history = defaultdict(list)
 
     total_start_time = time.time()
+    
+    # Track accumulated times for the summary
+    total_train_time = 0.0
+    total_val_time = 0.0
 
     for epoch in range(1, args.epochs + 1):
-        epoch_start_time = time.time()
+        
+        # --- TRAINING PHASE ---
+        train_start_time = time.time()
+        
         model.train()
         epoch_loss = 0.0
         correct = 0
         total = 0
+        
+        epoch_layer_norms = defaultdict(list)
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}", ncols=100)
         for imgs, labels in pbar:
@@ -195,6 +206,15 @@ def train_loop(args):
 
             optimizer.zero_grad()
             loss.backward()
+            
+            # --- Gradient Norm Tracking ---
+            for name, p in model.named_parameters():
+                if p.requires_grad and p.grad is not None:
+                    # Group by primary module (e.g., 'layer1', 'classifier')
+                    layer_name = name.split('.')[0] 
+                    epoch_layer_norms[layer_name].append(p.grad.detach().data.norm(2).item())
+            # ------------------------------
+
             optimizer.step()
 
             epoch_loss += loss.item() * imgs.size(0)
@@ -206,15 +226,25 @@ def train_loop(args):
             if writer:
                 writer.add_scalar("train/loss_step", loss.item(), global_step)
 
-        epoch_time = time.time() - epoch_start_time
+        train_duration = time.time() - train_start_time
+        total_train_time += train_duration
 
         if scheduler is not None:
             scheduler.step()
 
+        # Average the collected gradient norms for this epoch
+        for layer, norms in epoch_layer_norms.items():
+            if len(norms) > 0:
+                grad_norms_history[layer].append(sum(norms) / len(norms))
+
         avg_train_loss = epoch_loss / max(1, total)
         train_acc = correct / max(1, total)
 
+        # --- VALIDATION PHASE ---
+        val_start_time = time.time()
         val_loss, val_acc = evaluate(model, val_loader, device)
+        val_duration = time.time() - val_start_time
+        total_val_time += val_duration
 
         train_losses.append(avg_train_loss)
         val_losses.append(val_loss)
@@ -226,8 +256,10 @@ def train_loop(args):
         except Exception as e:
             print("Warning: failed to save plots:", e)
 
-        epoch_time_str = _format_seconds(epoch_time)
-        print(f"Epoch {epoch} done | time={epoch_time_str} | train_loss={avg_train_loss:.4f} train_acc={train_acc:.4f} | val_loss={val_loss:.4f} val_acc={val_acc:.4f}")
+        train_time_str = _format_seconds(train_duration)
+        val_time_str = _format_seconds(val_duration)
+        
+        print(f"Epoch {epoch} done | train_time={train_time_str} val_time={val_time_str} | train_loss={avg_train_loss:.4f} train_acc={train_acc:.4f} | val_loss={val_loss:.4f} val_acc={val_acc:.4f}")
 
         if writer:
             writer.add_scalar("train/loss_epoch", avg_train_loss, epoch)
@@ -262,6 +294,25 @@ def train_loop(args):
     if writer:
         writer.close()
 
+    # Save Gradient Norms to CSV
+    if grad_norms_history:
+        grad_csv_path = save_dir / f"grad_norms_{run_name}.csv"
+        try:
+            with open(grad_csv_path, "w") as f:
+                layers = list(grad_norms_history.keys())
+                f.write("epoch," + ",".join(layers) + "\n")
+                for e in range(args.epochs):
+                    row = [str(e+1)]
+                    for layer in layers:
+                        if e < len(grad_norms_history[layer]):
+                            row.append(f"{grad_norms_history[layer][e]:.6f}")
+                        else:
+                            row.append("0.0")
+                    f.write(",".join(row) + "\n")
+            print(f"Saved layer-wise gradient norms to {grad_csv_path}")
+        except Exception as e:
+            print("Warning: failed to save gradient norms:", e)
+
     summary_path = save_dir / f"summary_{run_name}.txt"
     try:
         with open(summary_path, "w") as f:
@@ -269,9 +320,15 @@ def train_loop(args):
             f.write("======================================\n")
             f.write(f"Start time: {datetime.fromtimestamp(total_start_time).isoformat()}\n")
             f.write(f"End time:   {datetime.fromtimestamp(time.time()).isoformat()}\n")
-            f.write(f"Total training time (H:M:S): {_format_seconds(total_time)}\n")
-            per_epoch = total_time / max(1, args.epochs)
-            f.write(f"Avg time per epoch (s): {per_epoch:.2f}\n")
+            f.write(f"Total loop time (H:M:S): {_format_seconds(total_time)}\n")
+            f.write(f"Total training time (H:M:S): {_format_seconds(total_train_time)}\n")
+            f.write(f"Total validation time (H:M:S): {_format_seconds(total_val_time)}\n")
+            
+            per_epoch_train = total_train_time / max(1, args.epochs)
+            per_epoch_val = total_val_time / max(1, args.epochs)
+            f.write(f"Avg train time per epoch (s): {per_epoch_train:.2f}\n")
+            f.write(f"Avg val time per epoch (s): {per_epoch_val:.2f}\n")
+            
             f.write("\nModel & dataset\n")
             f.write(f"Model: {args.model}\n")
             f.write(f"Strategy: {args.strategy}\n")
@@ -291,9 +348,8 @@ def train_loop(args):
             f.write("\nCLI args\n")
             for k, v in sorted(vars(args).items()):
                 f.write(f"{k}: {v}\n")
-        print("Saved training summary to", summary_path)
     except Exception as e:
-        print("Warning: failed to write summary:", e)
+        pass
 
     print(f"Training finished. Best val_acc: {best_val_acc:.4f}")
 
@@ -302,11 +358,11 @@ def train_loop(args):
 # -----------------------
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, default="dataset_splits", help="path to dataset root")
+    parser.add_argument("--data", type=str, default="dataset_splits")
     parser.add_argument("--train_split", type=str, default="train_100", choices=["train_100", "train_20", "train_05"])
-    parser.add_argument("--model", type=str, default="resnet50", help="model name (timm)")
+    parser.add_argument("--model", type=str, default="resnet50")
     parser.add_argument("--strategy", type=str, default="full", choices=["full", "linear_probe", "last_block", "selective_20"])
-    parser.add_argument("--pretrained", action="store_true", help="use ImageNet pretrained weights")
+    parser.add_argument("--pretrained", action="store_true", default=True)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--img_size", type=int, default=224) 
@@ -314,15 +370,15 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "adamw"])
     parser.add_argument("--scheduler", type=str, default="step", choices=["step", "cosine", "none"])
-    parser.add_argument("--step_size", type=int, default=10, help="stepLR step size")
-    parser.add_argument("--gamma", type=float, default=0.1, help="stepLR gamma")
+    parser.add_argument("--step_size", type=int, default=10)
+    parser.add_argument("--gamma", type=float, default=0.1)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--save_dir", type=str, default="checkpoints")
     parser.add_argument("--save_every", type=int, default=10)
-    parser.add_argument("--tensorboard", action="store_true", help="write tensorboard logs")
-    parser.add_argument("--randaugment", action="store_true", help="use RandAugment in training transforms")
+    parser.add_argument("--tensorboard", action="store_true")
+    parser.add_argument("--randaugment", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--force_cpu", action="store_true", help="force CPU even if CUDA is available")
+    parser.add_argument("--force_cpu", action="store_true")
     return parser.parse_args()
 
 if __name__ == "__main__":
