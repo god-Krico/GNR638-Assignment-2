@@ -36,11 +36,7 @@ Run the following commands for each model.
 
 Example models:
 
-resnet50
-
-densenet121
-
-efficientnet_b0
+resnet50, densenet121, efficientnet_b0
 
 Note
 
@@ -69,9 +65,7 @@ python train.py --model resnet50 --strategy full --train_split train_20 --epochs
 
 python train.py --model resnet50 --strategy full --train_split train_05 --epochs 20 --batch_size 32
 ```
-##Step 3: Evaluate Linear Probe
-
-(Embeddings & Confusion Matrix)
+##Step 3: Evaluate Linear Probe (Embeddings & Confusion Matrix)
 
 Generates:
 
@@ -114,6 +108,14 @@ Generates PCA clustering plots
 ```bash
 python probe_features.py --model resnet50 --batch_size 64
 ```
+
+
+##Step 6 : Aggreagate Metrics
+Finally, run the custom aggregation script to calculate the exact Few-Shot drop percentages and plot fine-tuning strategies:
+```bash
+python aggregate_metrics.py
+```
+
 Outputs and Deliverables
 
 All generated assets required for the technical report are automatically saved in the:
